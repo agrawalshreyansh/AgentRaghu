@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+import os
+from pathlib import Path
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "RAG Agent API"
@@ -18,7 +20,8 @@ class Settings(BaseSettings):
     CHROMA_SERVER_NOFILE: Optional[int] = None
     
     class Config:
-        env_file = ".env"
+        # Load .env from project root (two levels up from this file)
+        env_file = str(Path(__file__).parent.parent.parent.parent / ".env")
         case_sensitive = True
 
 settings = Settings()

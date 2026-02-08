@@ -1,8 +1,39 @@
+# Environment
 .env
+*.env
+!.env.example
 
-venv/
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+venv/
+env/
+*.egg-info/
+
+# Vector Store
 chroma_db/
+*.faiss
+*.pkl
+
+# Logs
 *.log
+logs/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Streamlit
+.streamlit/
+
+# Build
+dist/
+build/

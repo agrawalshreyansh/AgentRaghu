@@ -3,11 +3,13 @@ import requests
 import uuid
 import json
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 import streamlit.components.v1 as components
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from project root
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(env_path)
 
 # Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
