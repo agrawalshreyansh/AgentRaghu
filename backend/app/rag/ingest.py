@@ -42,6 +42,10 @@ def ingest_document(file: UploadFile):
         vector_store_path = Path(settings.CHROMA_PERSIST_DIRECTORY) / "faiss_index"
         vector_store.save_local(str(vector_store_path))
         
+        # Clear the cached vector store so next call reloads it
+        import app.rag.vector_store as vs
+        vs._vector_store_instance = None
+        
         return {"filename": file.filename, "chunks": len(splits), "status": "success"}
 
     finally:

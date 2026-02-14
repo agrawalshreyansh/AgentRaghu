@@ -2,16 +2,39 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
+import logging
+from contextlib import asynccontextmanager
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.core.limiter import limiter
+from app.rag.vector_store import get_embeddings, get_vector_store
 
 load_dotenv()
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting up RAG Agent API...")
+    logger.info("Loading HuggingFace embeddings model...")
+    get_embeddings()
+    logger.info("Embeddings model loaded and warmed up.")
+    logger.info("Loading vector store...")
+    get_vector_store()
+    logger.info("Vector store loaded.")
+    logger.info("Startup complete.")
+    yield
+    # Shutdown
+    logger.info("Shutting down...")
 
 app = FastAPI(
     title="RAG Agent API",
     description="API for RAG-based agent with Web Search",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan
 )
 
 app.state.limiter = limiter

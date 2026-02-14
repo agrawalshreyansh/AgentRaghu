@@ -1,13 +1,16 @@
 from typing import Annotated, Literal, TypedDict, List
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
+import logging
 
 from app.core.llm import get_llm
 from app.rag.search import get_search_tool
 from app.rag.vector_store import get_vector_store
+
+logger = logging.getLogger(__name__)
 
 # Define State
 class AgentState(TypedDict):
@@ -15,34 +18,39 @@ class AgentState(TypedDict):
     context: str
 
 # Nodes
+def entry_point(state: AgentState):
+    """Entry point that just passes through to routing."""
+    return {}
+
 def retrieve(state: AgentState):
     """
     Retrieve documents based on the last user message.
     """
     query = state["messages"][-1].content
+    logger.info(f"📚 RETRIEVE: Retrieving documents for query: '{query}'")
     vector_store = get_vector_store()
     retriever = vector_store.as_retriever(search_kwargs={"k": 3})
     docs = retriever.invoke(query)
     context = "\n\n".join([doc.page_content for doc in docs])
+    logger.info(f"📚 RETRIEVE: Found {len(docs)} documents, context length: {len(context)}")
     return {"context": context}
 
 def web_search_node(state: AgentState):
     """
     Perform web search if needed.
-    (Simplified: For now, we can make this decision based on a router or just always do it if RAG fails, 
-    but let's make it a tool call or a specific step).
-    For this 'Premium' agent, let's implement a smarter router.
     """
     query = state["messages"][-1].content
+    logger.info(f"🔍 WEB SEARCH: Performing web search for query: '{query}'")
     search_tool = get_search_tool()
     result = search_tool.run(query)
-    return {"context": result} # Overwrite or append context? Let's assume we use this if we route here.
+    logger.info(f"🔍 WEB SEARCH: Got result: {result[:200]}...")
+    return {"context": result}
 
 def generate(state: AgentState):
     """
     Generate answer using LLM and context.
     """
-    llm = get_llm()
+    llm = get_llm(timeout=60)
     messages = state["messages"]
     context = state.get("context", "")
     
@@ -81,32 +89,64 @@ Context:
     response = chain.invoke({"messages": messages, "context": context})
     return {"messages": [response]}
 
-def route_question(state: AgentState) -> Literal["retrieve", "web_search", "generate"]:
+def route_question(state: AgentState) -> Literal["retrieve", "web_search"]:
     """
-    Decide whether to use RAG, Web Search, or just Chat.
-    For simplicity, let's use a keyword check or a small LLM call.
-    Let's try a simple router using the LLM.
+    Decide whether to use RAG retrieval or web search.
+    Uses LLM to classify the query based on whether it requires current information
+    or can be answered from uploaded documents/general knowledge.
     """
-    llm = get_llm(temperature=0)
-    # Simple classification
-    # ... implementation of classification ...
-    # For now, let's default to 'retrieve' for RAG agent focus.
-    # A real implementation would ask the LLM "Is this about the uploaded docs or general knowledge?"
-    
-    # Heuristic: If we have vector store connection, try retrieval.
-    # To truly be "Web Search Enabled", let's randomize or just parallelize?
-    # Let's start with a fixed RAG flow for now as per "RAG based agent" priority.
+    query = state["messages"][-1].content
+    logger.info(f"🎯 ROUTING: Analyzing query: '{query}'")
+    llm = get_llm(temperature=0, timeout=30)
+
+    routing_prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are a routing agent. Analyze the user's query and decide whether it requires:
+- 'retrieve': The question can be answered from uploaded documents or general knowledge that doesn't change over time
+- 'web_search': The question requires current events, real-time data, recent news, prices, weather, sports scores, or any information that changes frequently
+
+IMPORTANT: Always use 'web_search' for:
+- Current prices, stock prices, cryptocurrency prices
+- Recent news or events
+- Weather information
+- Sports scores or results from this year
+- Time-sensitive data
+- Questions about "current", "today", "now", "latest", "recent"
+
+Return ONLY one word: 'retrieve' or 'web_search'"""),
+        ("human", "{query}")
+    ])
+
+    chain = routing_prompt | llm
+    result = chain.invoke({"query": query})
+    decision = result.content.strip().lower()
+    logger.info(f"🎯 ROUTING: LLM decision: '{decision}' -> routing to: '{decision if 'web_search' in decision else 'retrieve'}'")
+
+    if "web_search" in decision:
+        return "web_search"
     return "retrieve" 
 
 # Graph Construction
 workflow = StateGraph(AgentState)
 
+workflow.add_node("entry", entry_point)
 workflow.add_node("retrieve", retrieve)
 workflow.add_node("web_search", web_search_node)
 workflow.add_node("generate", generate)
 
-# Edges
-workflow.set_entry_point("retrieve")
+# Set entry point
+workflow.set_entry_point("entry")
+
+# Add conditional edge from entry to route based on the routing function
+workflow.add_conditional_edges(
+    "entry",
+    route_question,
+    {
+        "retrieve": "retrieve",
+        "web_search": "web_search"
+    }
+)
+
+# Both retrieve and web_search lead to generate
 workflow.add_edge("retrieve", "generate")
 workflow.add_edge("web_search", "generate")
 workflow.add_edge("generate", END)

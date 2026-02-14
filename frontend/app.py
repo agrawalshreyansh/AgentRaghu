@@ -7,14 +7,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 import streamlit.components.v1 as components
 
-# Load environment variables from project root
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(env_path)
 
-# Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
-# Page config
 st.set_page_config(
     page_title="Agent Raghu",
     page_icon="🤖",
@@ -22,7 +19,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
 st.markdown("""
 <style>
     .stChatMessage {
@@ -72,12 +68,8 @@ def save_to_browser(session_id, messages):
     """
     components.html(js_code, height=0)
 
-# Inject storage script
 inject_storage_script()
 
-# ============================================================================
-# SESSION STATE INITIALIZATION
-# ============================================================================
 
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
@@ -109,14 +101,10 @@ Your mission is to make complex documents accessible and easy to understand for 
 if "uploaded_docs" not in st.session_state:
     st.session_state.uploaded_docs = []
 
-# ============================================================================
-# SIDEBAR
-# ============================================================================
 
 with st.sidebar:
     st.title("⚙️ Settings")
     
-    # Session Management
     st.subheader("Session")
     st.info("💾 Chat history is stored in your browser")
     
@@ -188,26 +176,20 @@ with st.sidebar:
     except:
         st.error("Disconnected")
 
-# ============================================================================
-# MAIN CHAT INTERFACE
-# ============================================================================
 
 st.title("🤖 Agent Raghu")
 st.caption("Chat with your documents and get real-time information")
 
-# Display messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Chat input
 if prompt := st.chat_input("Ask me anything..."):
     # User message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     
-    # AI response
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
@@ -237,10 +219,6 @@ if prompt := st.chat_input("Ask me anything..."):
                 st.error(error_msg)
                 st.session_state.messages.append({"role": "assistant", "content": error_msg})
                 save_to_browser(st.session_state.session_id, st.session_state.messages)
-
-# ============================================================================
-# FOOTER
-# ============================================================================
 
 st.divider()
 col1, col2, col3 = st.columns(3)

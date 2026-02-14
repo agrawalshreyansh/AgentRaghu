@@ -2,10 +2,13 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
+import logging
 from app.rag.ingest import ingest_document
 from app.agent.graph import app_graph
 from langchain_core.messages import HumanMessage
 from app.core.limiter import limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -18,35 +21,27 @@ class ChatResponse(BaseModel):
     session_id: str
 
 @router.post("/chat", response_model=ChatResponse)
-@limiter.limit("5/minute")
+@limiter.limit("20/minute")
 async def chat_endpoint(request: Request, chat_request: ChatRequest):
     """
     Chat with the agent.
     """
     config = {"configurable": {"thread_id": chat_request.session_id}}
-    
-    # Invoke LangGraph
-    # We maintain state via LangGraph's checkpointer if configured, 
-    # but for this simple version, we might pass full history if we weren't using checkpointer.
-    # 'app_graph' here is stateless unless we attach a checkpointer. 
-    # For a quick MVP without specific persistence setup in graph.py, we just pass the new message.
-    # Ideally, we should add a checkpointer (e.g. MemorySaver) to the graph.py
-    
     inputs = {"messages": [HumanMessage(content=chat_request.message)]}
-    
+
     try:
-        # Note: Without a checkpointer, this 'thread_id' config won't persist state across calls 
-        # unless we explicitly handle history. 
-        # For this "fresh chat session" requirement, we'd need that.
-        # Let's assume we'll update graph.py to use MemorySaver or similar for the next step 
-        # or just return the single turn response for now.
+        logger.info(f"Processing chat request for session {chat_request.session_id}")
         result = await app_graph.ainvoke(inputs, config=config)
-        
         last_message = result["messages"][-1]
+        logger.info(f"Successfully generated response for session {chat_request.session_id}")
         return ChatResponse(response=last_message.content, session_id=chat_request.session_id)
-        
+
+    except TimeoutError as e:
+        logger.error(f"Timeout error for session {chat_request.session_id}: {e}")
+        raise HTTPException(status_code=504, detail="Request timed out. Please try again.")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing chat request: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 @router.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
